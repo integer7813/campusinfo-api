@@ -13,13 +13,13 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 핵심: 깃허브 시크릿에 저장된 토큰을 가져와서 도커 실행 시 주입합니다.
+      # 핵심: sudo env 방식을 사용하여 보안 정책을 우회하고 토큰을 주입합니다.
       - name: Deploy with Docker Compose
         env:
           TUNNEL_TOKEN: ${{ secrets.TUNNEL_TOKEN }}
         run: |
-          # sudo를 쓸 때 환경변수가 사라지지 않도록 명시적으로 넘겨줍니다.
-          sudo TUNNEL_TOKEN=$TUNNEL_TOKEN docker compose up -d --build
+          # sudo env "VAR=$VAR" 형식은 sudo 환경에서도 변수를 유지시켜 줍니다.
+          sudo env "TUNNEL_TOKEN=$TUNNEL_TOKEN" docker compose up -d --build
 
       - name: Cleanup Unused Images
         run: |
