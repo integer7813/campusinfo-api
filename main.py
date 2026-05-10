@@ -34,6 +34,6 @@ def root():
 
     return {
         "status": "success",
-        "message": "- API Server is running normally -",
+        "message": "--* API Server is running normally *--",
         "server_time_kst": kst_time.strftime("%Y-%m-%d %H:%M:%S KST")
     }
