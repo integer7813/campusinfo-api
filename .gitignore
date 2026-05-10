@@ -1,6 +1,28 @@
+# 1. 파이썬 관련 컴파일 파일 및 캐시
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# 2. 환경 변수 (보안 핵심!)
 .env
+.venv/
+env/
+venv/
+
+# 3. 데이터베이스 (데이터 유실 및 용량 방지)
 *.sqlite
 *.db
+# 만약 data/ 폴더 안에 DB를 몰아넣었다면 아래와 같이 추가
+data/
+
+# 4. 맥 OS 시스템 파일 (의외로 많이 올라가는 쓰레기 파일)
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# 5. 로그 및 빌드 파일
 logs/
+*.log
+build/
+dist/
