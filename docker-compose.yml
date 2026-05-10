@@ -1,0 +1,23 @@
+services:
+  campus-api:
+    build: .             # 현재 폴더의 Dockerfile로 빌드
+    container_name: campus-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    networks:
+      - appnet
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${TUNNEL_TOKEN}
+    networks:
+      - appnet
+    depends_on:
+      - campus-api
+
+networks:
+  appnet:
+    driver: bridge
