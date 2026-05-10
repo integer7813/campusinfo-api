@@ -13,12 +13,13 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 핵심: 도커 컴포즈를 이용해 빌드와 실행을 동시에 진행합니다.
-      # --build 옵션이 있어서 소스 변경 시 이미지를 새로 만들고, 
-      # 네트워크(appnet) 설정대로 터널과 다시 묶어줍니다.
+      # 핵심: 깃허브 시크릿에 저장된 토큰을 가져와서 도커 실행 시 주입합니다.
       - name: Deploy with Docker Compose
+        env:
+          TUNNEL_TOKEN: ${{ secrets.TUNNEL_TOKEN }}
         run: |
-          sudo docker compose up -d --build
+          # sudo를 쓸 때 환경변수가 사라지지 않도록 명시적으로 넘겨줍니다.
+          sudo TUNNEL_TOKEN=$TUNNEL_TOKEN docker compose up -d --build
 
       - name: Cleanup Unused Images
         run: |
