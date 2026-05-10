@@ -12,6 +12,14 @@ services:
     image: cloudflare/cloudflared:latest
     container_name: cloudflared
     restart: unless-stopped
+    # 1. 컨테이너 내부 DNS를 구글(8.8.8.8)로 강제 지정 (DNS 에러 해결)
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    # 2. 환경 변수를 명시적으로 주입
+    environment:
+      - TUNNEL_TOKEN=${TUNNEL_TOKEN}
+    # 3. 토큰을 변수로 받아서 실행
     command: tunnel --no-autoupdate run --token ${TUNNEL_TOKEN}
     networks:
       - appnet
