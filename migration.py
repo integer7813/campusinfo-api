@@ -4,7 +4,7 @@ import os
 import re
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-FILE_PATH = os.path.join(BASE_DIR, "data", "universities.csv")
+FILE_PATH = os.path.join(BASE_DIR, "data", "universities-260219.csv")
 DB_PATH = os.path.join(BASE_DIR, "data", "universities.db")
 
 # =========================
