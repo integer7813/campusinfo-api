@@ -84,11 +84,10 @@ docker ps
 # 터널 연결 로그 실시간 확인
 docker logs -f cloudflared
 
-© 2026 integer7813. All rights reserved.
 ```
 
-📢 Latest Update
-최신 데이터 신뢰성을 위해 정기적으로 데이터베이스를 업데이트하고 있습니다.
+## 📢 Latest Update
+* 최신 데이터 신뢰성을 위해 정기적으로 데이터베이스를 업데이트하고 있습니다.
 
 [!IMPORTANT]
 2026-05-13 데이터 최신화 완료
