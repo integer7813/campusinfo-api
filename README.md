@@ -85,3 +85,8 @@ docker ps
 docker logs -f cloudflared
 
 © 2026 integer7813. All rights reserved.
+```
+
+## 26-05-13 대학알리미 학교 개황 정보(2026.2.19.기준)
+   (https://www.academyinfo.go.kr/brd/brd0520/selectDetail.do?ntce_sntc_sno=186&bbs_gubun=rfbr&no=21)
+상기 데이터로 DB 최신화
