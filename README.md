@@ -92,10 +92,10 @@ docker logs -f cloudflared
 [!IMPORTANT]
 2026-05-13 데이터 최신화 완료
 
-기준 데이터: 대학알리미 학교 개황 정보 (2026.02.19. 공시 기준)
+기준 데이터: 학교 개황 정보 (2026.02.19. 공시 기준)
 
 주요 변경사항: 전국 대학교 및 대학원 신설·통폐합 정보, 주소 및 총장명 등 최신 이력 반영
 
-출처: 대학알리미 공지사항 바로가기
+출처: https://www.academyinfo.go.kr/brd/brd0520/selectDetail.do?ntce_sntc_sno=186&bbs_gubun=rfbr&no=21
 
 © 2026 integer7813. All rights reserved.
