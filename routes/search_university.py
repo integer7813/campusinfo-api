@@ -12,69 +12,25 @@ router = APIRouter()
 
 @router.get(
     "/search-university",
-    summary="학교명 키워드 검색",
-    description="학교 이름을 키워드로 검색합니다. 결과는 실제 DB의 모든 상세 정보를 포함합니다.",
-    response_description="검색어에 매칭되는 대학교 리스트 (전체 컬럼 포함)",
+    summary="학교명 키워드 검색 (페이지네이션 지원)",
+    description="학교 이름을 키워드로 검색합니다. page와 size 파라미터를 통해 페이지네이션이 가능합니다.",
     responses={
         200: {
             "description": "검색 성공",
-            "content": {
-                "application/json": {
-                    "example": {
-                        "status": "success",
-                        "data": {
-                            "request_size": 10,
-                            "count": 1,
-                            "items": [
-                                {
-                                    "학교구분": "대학원",
-                                    "학교코드": 1568,
-                                    "학교명": "상지대학교 대학원",
-                                    "본분교": "본교",
-                                    "학제": "일반대학원",
-                                    "지역": "강원",
-                                    "설립구분": "사립",
-                                    "관련법령": "고등교육법",
-                                    "법인명": "상지학원",
-                                    "학교상태": "기존",
-                                    "학교명(한자)": "尚志大学 大学院",
-                                    "학교명(영문)": "Graduate School Sangji University",
-                                    "주소": "강원특별자치도 원주시 상지대길 83 (우산동)",
-                                    "영문주소": "83 Sangjidae-gil, Wonju-si, Gangwon-do",
-                                    "중문주소": "83 Sangjidae-gil, Wonju-si, Gangwon-do",
-                                    "우편번호": 26339,
-                                    "학교개교일": "1955-06-10",
-                                    "학교홈페이지": "www.sangji.ac.kr/grad/index.do",
-                                    "총장명": "노병철",
-                                    "학교대표번호": "033-730-0682",
-                                    "학교대표팩스번호": "033-730-0684"
-                                }
-                            ]
-                        }
-                    }
-                }
-            }
+            "content": {"application/json": {"example": {"status": "success", "data": {"page": 1, "size": 10, "count": 1, "items": []}}}}
         },
         404: {
             "description": "검색 결과 없음",
-            "content": {
-                "application/json": {
-                    "example": {
-                        "status": "error",
-                        "message": "검색 결과가 없습니다.",
-                        "data": {"count": 0, "items": []}
-                    }
-                }
-            }
+            "content": {"application/json": {"example": {"status": "error", "message": "검색 결과가 없습니다.", "data": {"count": 0, "items": []}}}}
         }
     }
 )
-
 @limiter.limit("10/minute")
 def search_university(
     request: Request, 
     name: str = Query(..., min_length=2, description="검색할 학교 이름"),
-    size: Optional[int] = Query(10, ge=1, le=50, description="조회 개수") 
+    page: Optional[int] = Query(None, ge=1, description="페이지 번호"), # None 허용
+    size: Optional[int] = Query(None, ge=1, le=100, description="조회 개수") # None 허용
 ):
     start = time.perf_counter()
     conn = None
@@ -85,19 +41,31 @@ def search_university(
         clean_name = name.strip()
         search_term = f"%{clean_name}%"
 
-        # 실제 모든 컬럼을 가져오도록 쿼리 유지
-        query = 'SELECT * FROM universities WHERE "학교명" LIKE ? LIMIT ?'
-        cur.execute(query, (search_term, size))
+        # 1. 페이지네이션 로직 처리
+        # page나 size가 하나라도 없으면 전체 검색(혹은 매우 큰 제한)으로 간주
+        is_pagination = page is not None and size is not None
         
+        if is_pagination:
+            offset = (page - 1) * size
+            # LIMIT와 OFFSET을 사용하는 쿼리
+            query = 'SELECT * FROM universities WHERE "학교명" LIKE ? LIMIT ? OFFSET ?'
+            params = (search_term, size, offset)
+        else:
+            # 페이지네이션 정보가 없으면 전체(최대 500개로 안전제한)를 가져옴
+            query = 'SELECT * FROM universities WHERE "학교명" LIKE ? LIMIT ?'
+            params = (search_term, 500) 
+
+        cur.execute(query, params)
         rows = cur.fetchall()
         
         process_time = round((time.perf_counter() - start) * 1000, 3)
-        logger.info(f"Search for '{clean_name}' took {process_time}ms")
+        logger.info(f"Search for '{clean_name}' (Page: {page}, Size: {size}) took {process_time}ms")
 
-        # row 객체를 딕셔너리로 변환 (모든 컬럼 포함됨)
         results = [dict(row) for row in rows]
         
         if not results:
+            # 클라이언트 요구사항에 따라 404 대신 유연하게 200에 빈 배열을 줄 수도 있지만, 
+            # 기존 로직을 유지하여 404를 반환합니다.
             return JSONResponse(
                 status_code=404,
                 content={
@@ -111,7 +79,8 @@ def search_university(
             content={
                 "status": "success",
                 "data": {
-                    "request_size": size,
+                    "page": page if is_pagination else 1,
+                    "request_size": size if is_pagination else len(results),
                     "count": len(results),
                     "items": results
                 }
