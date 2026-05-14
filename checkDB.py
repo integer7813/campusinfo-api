@@ -1,6 +1,6 @@
 import sqlite3
 
-conn = sqlite3.connect("data/universities.db")
+conn = sqlite3.connect("universities.db")
 
 cursor = conn.cursor()
 cursor.execute("SELECT * FROM universities LIMIT 1")
