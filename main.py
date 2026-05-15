@@ -14,6 +14,7 @@ from routes.random_university import router as random_router
 from routes.search_university import router as search_router
 from routes.locate_university import router as locate_router
 from routes.univ_directory import router as univ_directory
+from routes.majors import router as majors
 
 app = FastAPI()
 
@@ -39,6 +40,7 @@ app.include_router(random_router)
 app.include_router(search_router)
 app.include_router(locate_router)
 app.include_router(univ_directory)
+app.include_router(majors)
 
 @app.get("/")
 def root():
