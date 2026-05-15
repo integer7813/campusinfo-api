@@ -98,4 +98,8 @@ docker logs -f cloudflared
 
 출처: https://www.academyinfo.go.kr/brd/brd0520/selectDetail.do?ntce_sntc_sno=186&bbs_gubun=rfbr&no=21
 
+2026-05-15 데이터 최신화 완료
+2026년 상반기 기준 학부/과(전공) 리스트(2026.2.19.기준) 데이터 및 API 추가 - 메타데이터 api 추가
+https://www.academyinfo.go.kr/brd/brd0520/selectDetail.do?ntce_sntc_sno=187&bbs_gubun=rfbr&no=11
+
 © 2026 integer7813. All rights reserved.
