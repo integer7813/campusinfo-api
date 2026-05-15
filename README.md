@@ -131,7 +131,7 @@ docker logs -f cloudflared
 > * **출처:** [대학알리미 공시 자료실](https://www.academyinfo.go.kr/brd/brd0520/selectDetail.do?ntce_sntc_sno=186&bbs_gubun=rfbr&no=21)
 > 
 > 
-
+git add README.md && git commit -m "docs: 리드미 가이드 및 업데이트 내역 추가" && git push origin main
 > [!IMPORTANT]
 > **2026-05-15 학과 데이터 마이그레이션 및 동적 API 추가**
 > * **기준 데이터:** 전국 대학 학부·과(전공) 정보 (2026.02.19. 공시 기준)
