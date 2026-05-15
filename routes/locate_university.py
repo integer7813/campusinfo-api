@@ -158,7 +158,7 @@ def locate_university(
             content={
                 "status": "success", 
                 "data": {
-                    "count": total_count,
+                    "total_count": total_count,
                     "page": page,
                     "size": size,
                     "items": results
