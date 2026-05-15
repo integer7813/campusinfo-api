@@ -44,25 +44,33 @@ router = APIRouter()
         }
     }
 )
+@router.get(
+    "/university/metadata",
+    summary="대학 필터 메타데이터 조회",
+    description="설립구분, 학교구분, 지역 목록 등 프론트엔드 드롭다운을 구성하기 위한 고유(DISTINCT) 리스트를 반환합니다.",
+)
 def get_university_metadata():
     conn = None
     try:
         conn = get_conn()
         cur = conn.cursor()
 
+        # 1. 설립구분 DISTINCT 추출 (row[0]로 정확히 문자열만 추출)
         cur.execute('SELECT DISTINCT "설립구분" FROM universities WHERE "설립구분" IS NOT NULL AND "설립구분" != \'\'')
-        founding_types = [row[0] for row in cur.fetchall()]
+        founding_types = [row[0].strip() for row in cur.fetchall() if row[0]]
 
+        # 2. 학교구분 DISTINCT 추출 (★ 이 부분이 튜플로 꼬여서 안 나왔던 원인입니다!)
         cur.execute('SELECT DISTINCT "학교구분" FROM universities WHERE "학교구분" IS NOT NULL AND "학교구분" != \'\'')
-        school_types = [row[0] for row in cur.fetchall()]
+        school_types = [row[0].strip() for row in cur.fetchall() if row[0]]
 
+        # 3. 주소 앞 2글자 쪼개서 지역 리스트 만들기
         cur.execute('SELECT DISTINCT "주소" FROM universities WHERE "주소" IS NOT NULL AND "주소" != \'\'')
         raw_addresses = cur.fetchall()
         
         region_set = set()
         for row in raw_addresses:
-            addr = row[0].strip()
-            if addr:
+            if row[0]:
+                addr = row[0].strip()
                 first_word = addr.split()[0]
                 refined_region = first_word[:2] if len(first_word) >= 2 else first_word
                 region_set.add(refined_region)
@@ -85,7 +93,6 @@ def get_university_metadata():
     finally:
         if conn:
             conn.close()
-
 
 # =========================================================================
 # 2. 다중 필터 대응 대학 통합 검색 API
