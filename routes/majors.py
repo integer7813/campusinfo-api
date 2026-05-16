@@ -10,6 +10,7 @@ from limiter import limiter
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+# [기존 Enum 구조 유지] 데이터와 100% 매칭됨을 확인했습니다.
 class FoundingType(str, Enum):
     NATIONAL = "국립"
     NAT_CORP = "국립대법인"
@@ -40,26 +41,10 @@ class ProgramType(str, Enum):
     GRAD_SPEC = "특수대학원"
     GRAD_GEN = "일반대학원"
 
+
 @router.get(
     "/locate-major",
     summary="학과 검색 (학과명/설립/구분/학제)", 
-    responses={
-        200: {
-            "content": {
-                "application/json": {
-                    "example": {
-                        "status": "success",
-                        "data": {
-                            "total_count": 1,
-                            "page": 1,
-                            "size": 10,
-                            "items": []
-                        }
-                    }
-                }
-            }
-        }
-    }
 )
 @limiter.limit("20/minute")
 def locate_major(
@@ -71,8 +56,6 @@ def locate_major(
     size: int = Query(10, ge=1, le=100),
     page: int = Query(1, ge=1)
 ):
-    start_time = time.perf_counter()
-    
     if not any([q, founding, school_type, program]):
         return JSONResponse(
             content={
@@ -87,25 +70,22 @@ def locate_major(
         conn = get_conn()
         cur = conn.cursor()
 
-        where_clauses = ["1=1"]
+        # 기본적으로 '폐지'된 학과는 제외하고 '기존' 학과만 검색하도록 설정 (데이터 기반 보완)
+        where_clauses = ['"학과상태" = \'기존\'']
         params = []
 
-        # 1. 학과명 검색 -> 실제 컬럼명인 "학부·과(전공)명"으로 변경
         if q:
             where_clauses.append('"학부·과(전공)명" LIKE ?')
-            params.append(f"%{q}%")
+            params.append(f"%{q.strip()}%")
             
-        # 2. 설립구분 필터 -> "설립구분"
         if founding:
             where_clauses.append('"설립구분" = ?')
             params.append(founding.value)
             
-        # 3. 학교구분 필터 -> "학교구분"
         if school_type:
             where_clauses.append('"학교구분" = ?')
             params.append(school_type.value)
             
-        # 4. 학제 필터 -> "학제"
         if program:
             where_clauses.append('"학제" = ?')
             params.append(program.value)
@@ -117,7 +97,7 @@ def locate_major(
         cur.execute(count_query, params)
         total_count = cur.fetchone()[0]
 
-        # 데이터 페이징 조회 -> 실제 컬럼명인 "학교명" 및 "학부·과(전공)명"으로 정렬
+        # 데이터 페이징 조회
         offset = (page - 1) * size
         data_query = f'''
             SELECT * FROM majors 
@@ -152,26 +132,10 @@ def locate_major(
     finally:
         if conn: conn.close()
 
+
 @router.get(
     "/major-metadata",
     summary="학과 검색용 드롭다운 메타데이터 조회",
-    description="DB에 실제로 존재하는 '설립구분', '학교구분', '학제'의 목록을 중복 없이 추출하여 프론트엔드 드롭다운 컴포넌트 생성용으로 제공합니다.",
-    responses={
-        200: {
-            "content": {
-                "application/json": {
-                    "example": {
-                        "status": "success",
-                        "data": {
-                            "founding_options": ["사립", "국립", "공립"],
-                            "school_type_options": ["전문대학", "대학", "대학원"],
-                            "program_options": ["기능대학", "대학교", "일반대학원", "특수대학원"]
-                        }
-                    }
-                }
-            }
-        }
-    }
 )
 def get_major_metadata():
     conn = None
@@ -179,26 +143,27 @@ def get_major_metadata():
         conn = get_conn()
         cur = conn.cursor()
 
-        # 1. DB에 실제로 존재하는 설립구분 중복 없이 추출
-        cur.execute('SELECT DISTINCT "설립구분" FROM majors WHERE "설립구분" IS NOT NULL ORDER BY "설립구분" ASC')
-        founding_list = [row[0] for row in cur.fetchall() if row[0]]
+        # 학과상태가 '기존'인 활성화된 학과의 메타데이터만 추출하도록 튜닝
+        cur.execute('SELECT DISTINCT "설립구분" FROM majors WHERE "학과상태" = \'기존\' AND "설립구분" IS NOT NULL AND "설립구분" != \'\' ORDER BY "설립구분" ASC')
+        founding_list = [row[0].strip() for row in cur.fetchall() if row[0]]
 
-        # 2. DB에 실제로 존재하는 학교구분 중복 없이 추출
-        cur.execute('SELECT DISTINCT "학교구분" FROM majors WHERE "학교구분" IS NOT NULL ORDER BY "학교구분" ASC')
-        school_type_list = [row[0] for row in cur.fetchall() if row[0]]
+        cur.execute('SELECT DISTINCT "학교구분" FROM majors WHERE "학과상태" = \'기존\' AND "학교구분" IS NOT NULL AND "학교구분" != \'\' ORDER BY "학교구분" ASC')
+        school_type_list = [row[0].strip() for row in cur.fetchall() if row[0]]
 
-        # 3. DB에 실제로 존재하는 학제 중복 없이 추출
-        cur.execute('SELECT DISTINCT "학제" FROM majors WHERE "학제" IS NOT NULL ORDER BY "학제" ASC')
-        program_list = [row[0] for row in cur.fetchall() if row[0]]
+        cur.execute('SELECT DISTINCT "학제" FROM majors WHERE "학과상태" = \'기존\' AND "학제" IS NOT NULL AND "학제" != \'\' ORDER BY "학제" ASC')
+        program_list = [row[0].strip() for row in cur.fetchall() if row[0]]
 
-        return {
-            "status": "success",
-            "data": {
-                "founding_options": founding_list,     
-                "school_type_options": school_type_list, 
-                "program_options": program_list         
-            }
-        }
+        return JSONResponse(
+            content={
+                "status": "success",
+                "data": {
+                    "founding_options": founding_list,     
+                    "school_type_options": school_type_list, 
+                    "program_options": program_list         
+                }
+            },
+            media_type="application/json; charset=utf-8"
+        )
     except Exception as e:
         logger.error(f"Metadata fetch error: {str(e)}")
         return JSONResponse(
