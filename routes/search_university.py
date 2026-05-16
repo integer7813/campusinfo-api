@@ -12,12 +12,12 @@ router = APIRouter()
 
 
 # =========================================================================
-# 1. 대학 필터 메타데이터 조회 API
+# 1. 대학 필터 메타데이터 조회 API (수정 완료)
 # =========================================================================
 @router.get(
     "/university/metadata",
     summary="대학 필터 메타데이터 조회",
-    description="설립구분, 학교구분, 지역 목록 등 프론트엔드 드롭다운을 구성하기 위한 고유(DISTINCT) 리스트를 반환합니다.",
+    description="설립구분, 학교구분(학제), 지역 목록 등 프론트엔드 드롭다운을 구성하기 위한 고유(DISTINCT) 리스트를 반환합니다.",
     responses={
         200: {
             "description": "메타데이터 조회 성공",
@@ -27,8 +27,8 @@ router = APIRouter()
                         "status": "success",
                         "data": {
                             "founding_types": ["국립", "공립", "사립", "국립대법인"],
-                            "school_types": ["대학", "전문대학", "대학원"],
-                            "regions": ["강원", "경기", "서울", "인천"]
+                            "school_types": ["대학교", "전문대학", "대학원"],  # 학제 컬럼 데이터 기반
+                            "regions": ["강원", "경기", "서울", "인천"]        # 지역 컬럼 데이터 기반
                         }
                     }
                 }
@@ -44,45 +44,30 @@ router = APIRouter()
         }
     }
 )
-@router.get(
-    "/university/metadata",
-    summary="대학 필터 메타데이터 조회",
-    description="설립구분, 학교구분, 지역 목록 등 프론트엔드 드롭다운을 구성하기 위한 고유(DISTINCT) 리스트를 반환합니다.",
-)
 def get_university_metadata():
     conn = None
     try:
         conn = get_conn()
         cur = conn.cursor()
 
-        # 1. 설립구분 DISTINCT 추출 (row[0]로 정확히 문자열만 추출)
+        # 1. 설립구분 DISTINCT 추출
         cur.execute('SELECT DISTINCT "설립구분" FROM universities WHERE "설립구분" IS NOT NULL AND "설립구분" != \'\'')
         founding_types = [row[0].strip() for row in cur.fetchall() if row[0]]
 
-        # 2. 학교구분 DISTINCT 추출 (★ 이 부분이 튜플로 꼬여서 안 나왔던 원인입니다!)
-        cur.execute('SELECT DISTINCT "학교구분" FROM universities WHERE "학교구분" IS NOT NULL AND "학교구분" != \'\'')
+        # 2. 학교구분 DISTINCT 추출 (DB의 '학제' 컬럼 매핑)
+        cur.execute('SELECT DISTINCT "학제" FROM universities WHERE "학제" IS NOT NULL AND "학제" != \'\'')
         school_types = [row[0].strip() for row in cur.fetchall() if row[0]]
 
-        # 3. 주소 앞 2글자 쪼개서 지역 리스트 만들기
-        cur.execute('SELECT DISTINCT "주소" FROM universities WHERE "주소" IS NOT NULL AND "주소" != \'\'')
-        raw_addresses = cur.fetchall()
-        
-        region_set = set()
-        for row in raw_addresses:
-            if row[0]:
-                addr = row[0].strip()
-                first_word = addr.split()[0]
-                refined_region = first_word[:2] if len(first_word) >= 2 else first_word
-                region_set.add(refined_region)
-        
-        regions = sorted(list(region_set))
+        # 3. 지역 DISTINCT 추출 (DB의 '지역' 컬럼을 바로 사용하도록 수정)
+        cur.execute('SELECT DISTINCT "지역" FROM universities WHERE "지역" IS NOT NULL AND "지역" != \'\'')
+        regions = sorted([row[0].strip() for row in cur.fetchall() if row[0]])
 
         return JSONResponse(
             content={
                 "status": "success",
                 "data": {
                     "founding_types": founding_types,
-                    "school_types": school_types,
+                    "school_types": school_types,  # 프론트엔드 key 유지를 위해 변수명은 유지
                     "regions": regions
                 }
             }
@@ -94,86 +79,21 @@ def get_university_metadata():
         if conn:
             conn.close()
 
+
 # =========================================================================
-# 2. 다중 필터 대응 대학 통합 검색 API
+# 2. 다중 필터 대응 대학 통합 검색 API (수정 완료)
 # =========================================================================
 @router.get(
     "/search-university",
     summary="학교명 키워드 및 다중 필터 검색 (페이지네이션 지원)",
-    description="학교 이름 키워드(선택) 및 설립구분, 학교구분, 지역 등의 필터를 조합하여 범위를 좁혀 검색합니다.",
-    responses={
-        200: {
-            "description": "검색 성공 (데이터가 한 개 이상 존재할 때)",
-            "content": {
-                "application/json": {
-                    "example": {
-                        "status": "success", 
-                        "data": {
-                            "page": 1, 
-                            "request_size": 10, 
-                            "total_count": 1, 
-                            "items_count": 1, 
-                            "items": [
-                                {
-                                    "학교구분": "대학원",
-                                    "학교코드": 1568,
-                                    "학교명": "상지대학교 대학원",
-                                    "본분교": "본교",
-                                    "학제": "일반대학원",
-                                    "지역": "강원",
-                                    "설립구분": "사립",
-                                    "관련법령": "고등교육법",
-                                    "법인명": "상지학원",
-                                    "학교상태": "기존",
-                                    "학교명(한자)": "尚志大学 大学院",
-                                    "학교명(영문)": "Graduate School Sangji University",
-                                    "주소": "강원특별자치도 원주시 상지대길 83 (우산동)",
-                                    "영문주소": "83 Sangjidae-gil, Wonju-si, Gangwon-do",
-                                    "중문주소": "83 Sangjidae-gil, Wonju-si, Gangwon-do",
-                                    "우편번호": 26339,
-                                    "학교개교일": "1955-06-10",
-                                    "학교홈페이지": "www.sangji.ac.kr/grad/index.do",
-                                    "총장명": "노병철",
-                                    "학교대표번호": "033-730-0682",
-                                    "학교대표팩스번호": "033-730-0684"
-                                }
-                            ]
-                        }
-                    }
-                }
-            }
-        },
-        404: {
-            "description": "일치하는 검색 결과 없음",
-            "content": {
-                "application/json": {
-                    "example": {
-                        "status": "error",
-                        "message": "요청하신 조건에 합치하는 대학 검색 결과가 없습니다.",
-                        "data": {
-                            "total_count": 0,
-                            "items": []
-                        }
-                    }
-                }
-            }
-        },
-        500: {
-            "description": "서버 내부 오류",
-            "content": {
-                "application/json": {
-                    "example": {"status": "error", "message": "서버 내부 오류"}
-                }
-            }
-        }
-    }
+    description="학교 이름 키워드(선택) 및 설립구분, 학교구분(학제), 지역 등의 필터를 조합하여 범위를 좁혀 검색합니다.",
 )
 @limiter.limit("10/minute")
 def search_university(
     request: Request, 
     name: Optional[str] = Query(None, description="검색할 학교 이름 (선택 항목)"),
     founding: Optional[str] = Query(None, description="설립구분 필터 (ex: 사립, 국립)"),
-    school_type: Optional[str] = Query(None, description="학교구분 필터 (ex: 대학, 대학원)"),
+    school_type: Optional[str] = Query(None, description="학교구분 필터 (ex: 대학교, 전문대학)"), # 학제 필터로 매핑됨
     region: Optional[str] = Query(None, description="지역 필터 (ex: 강원, 서울, 경기)"),
     page: Optional[int] = Query(None, ge=1, description="페이지 번호"),
     size: Optional[int] = Query(None, ge=1, le=100, description="조회 개수")
@@ -184,7 +104,6 @@ def search_university(
         conn = get_conn()
         cur = conn.cursor()
 
-        # [동적 쿼리 조건 조립]
         where_clauses = []
         query_params = []
 
@@ -197,23 +116,24 @@ def search_university(
             where_clauses.append('"설립구분" = ?')
             query_params.append(founding.strip())
 
+        # 학교구분 검색 시 실제 DB 컬럼인 "학제"로 검색하도록 변경
         if school_type and school_type.strip():
-            where_clauses.append('"학교구분" = ?')
+            where_clauses.append('"학제" = ?')
             query_params.append(school_type.strip())
 
+        # 지역 검색 시 주소 LIKE 대신 "지역" 컬럼으로 정확하게 매칭하도록 변경
         if region and region.strip():
-            where_clauses.append('"주소" LIKE ?')
-            query_params.append(f"{region.strip()}%")
+            where_clauses.append('"지역" = ?')
+            query_params.append(region.strip())
 
         where_stmt = " WHERE " + " AND ".join(where_clauses) if where_clauses else ""
 
-        # ✅ 1. 전체 개수 조회 (Total Count)
+        # 1. 전체 개수 조회
         count_query = f'SELECT COUNT(*) as total FROM universities{where_stmt}'
         cur.execute(count_query, tuple(query_params))
         total_result = cur.fetchone()
         total_count = total_result['total'] if total_result else 0
 
-        # 결과가 아예 없으면 명세에 정의된 404 응답 양식으로 리턴
         if total_count == 0:
             return JSONResponse(
                 status_code=404,
@@ -224,7 +144,7 @@ def search_university(
                 }
             )
 
-        # ✅ 2. 페이지네이션 데이터 조회
+        # 2. 페이지네이션 데이터 조회
         is_pagination = page is not None and size is not None
         
         if is_pagination:
@@ -242,7 +162,6 @@ def search_university(
         process_time = round((time.perf_counter() - start) * 1000, 3)
         logger.info(f"Filtered Search (Total: {total_count}) took {process_time}ms")
 
-        # ✅ 3. 성공 응답
         return JSONResponse(
             content={
                 "status": "success",
