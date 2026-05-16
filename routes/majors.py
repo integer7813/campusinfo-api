@@ -43,11 +43,11 @@ class ProgramType(str, Enum):
 
 
 # =========================================================================
-# 1. 학과 통합 검색 API (지역 필터 반영 완료)
+# 1. 학과 통합 검색 API (지역 필터 완벽 연동)
 # =========================================================================
 @router.get(
     "/locate-major",
-    summary="학과 검색 (학과명/설립/구분/학제/지역)", 
+    summary="학과 검색 (학과명/설립/구분/학제/지역 정교화)", 
     responses={
         200: {
             "content": {
@@ -73,13 +73,13 @@ def locate_major(
     founding: Optional[FoundingType] = Query(None, description="설립구분 (국립/사립 등)"),
     school_type: Optional[SchoolType] = Query(None, description="학교구분 (대학/전문대학 등)"),
     program: Optional[ProgramType] = Query(None, description="학제 (일반대학원/특수대학원 등)"),
-    region: Optional[str] = Query(None, description="지역 필터 (예: 경기, 서울, 강원)"),  # 🔥 추가됨
+    region: Optional[str] = Query(None, description="소재지 지역 필터 (예: 서울, 강원, 경기)"),  
     size: int = Query(10, ge=1, le=100),
     page: int = Query(1, ge=1)
 ):
     start_time = time.perf_counter()
     
-    # 지역(region) 필터가 추가됨에 따라 가드 조건 체크 대상 확장
+    # 가드 조건 체크 대상 확장
     if not any([q, founding, school_type, program, region]):
         return JSONResponse(
             content={
@@ -94,43 +94,44 @@ def locate_major(
         conn = get_conn()
         cur = conn.cursor()
 
-        # 운영 중인 기존 학과만 타겟팅
+        # 원본 데이터 기준 운영 중인 학과 상태만 필터링
         where_clauses = ['"학과상태" = \'기존\'']
         params = []
 
-        # 1. 학과명 검색
+        # 1. 학부·과(전공)명 조건 추가
         if q and q.strip():
             where_clauses.append('"학부·과(전공)명" LIKE ?')
             params.append(f"%{q.strip()}%")
             
-        # 2. 설립구분 필터
+        # 2. 설립구분 조건 추가
         if founding:
             where_clauses.append('"설립구분" = ?')
             params.append(founding.value)
             
-        # 3. 학교구분 필터
+        # 3. 학교구분 조건 추가
         if school_type:
             where_clauses.append('"학교구분" = ?')
             params.append(school_type.value)
             
-        # 4. 학제 필터
+        # 4. 학제 조건 추가
         if program:
             where_clauses.append('"학제" = ?')
             params.append(program.value)
 
-        # 5. 지역(소재지) 필터 🔥 추가됨
+        # 5. 🎯 정교화된 소재지(지역) 조건 추가
+        # 데이터 적재 환경에 따라 공백이 남아있을 수 있으므로 TRIM 처리하여 칼럼 바인딩
         if region and region.strip():
-            where_clauses.append('"소재지" = ?')
+            where_clauses.append('TRIM("소재지") = ?')
             params.append(region.strip())
 
         where_str = " AND ".join(where_clauses)
 
-        # 전체 개수 카운트 쿼리
+        # 📊 전체 개수 카운트 쿼리 실행
         count_query = f'SELECT COUNT(*) FROM majors WHERE {where_str}'
         cur.execute(count_query, params)
         total_count = cur.fetchone()[0]
 
-        # 결과 데이터 페이징 조회
+        # 📑 페이징 및 정렬 조건 결합하여 조회
         offset = (page - 1) * size
         data_query = f'''
             SELECT * FROM majors 
@@ -144,7 +145,7 @@ def locate_major(
         results = [dict(row) for row in rows]
         
         process_time = round((time.perf_counter() - start_time) * 1000, 3)
-        logger.info(f"Major Search (Total: {total_count}) took {process_time}ms")
+        logger.info(f"Major Search (Region: {region} | Total: {total_count}) took {process_time}ms")
 
         return JSONResponse(
             content={
@@ -170,12 +171,12 @@ def locate_major(
 
 
 # =========================================================================
-# 2. 학과 검색용 드롭다운 메타데이터 조회 API (지역 필터 반영 완료)
+# 2. 학과 검색용 드롭다운 메타데이터 조회 API (소재지 중복제거 정렬 반영)
 # =========================================================================
 @router.get(
     "/major-metadata",
     summary="학과 검색용 드롭다운 메타데이터 조회",
-    description="DB에 실제로 존재하는 '설립구분', '학교구분', '학제', '소재지(지역)' 목록을 중복 없이 제공합니다.",
+    description="DB에 실제로 존재하는 '설립구분', '학교구분', '학제', '소재지(지역)' 목록을 제공합니다.",
 )
 def get_major_metadata():
     conn = None
@@ -195,8 +196,16 @@ def get_major_metadata():
         cur.execute('SELECT DISTINCT "학제" FROM majors WHERE "학과상태" = \'기존\' AND "학제" IS NOT NULL AND "학제" != \'\' ORDER BY "학제" ASC')
         program_list = [row[0].strip() for row in cur.fetchall() if row[0]]
 
-        # 4. 지역(소재지) 리스트 추출 🔥 추가됨
-        cur.execute('SELECT DISTINCT "소재지" FROM majors WHERE "학과상태" = \'기존\' AND "소재지" IS NOT NULL AND "소재지" != \'\' ORDER BY "소재지" ASC')
+        # 4. 🎯 소재지 리스트 정교화 추출
+        # 공백이나 특수 가공 문제 방지를 위해 데이터 클렌징 쿼리 적용
+        cur.execute('''
+            SELECT DISTINCT TRIM("소재지") 
+            FROM majors 
+            WHERE "학과상태" = '기존' 
+              AND "소재지" IS NOT NULL 
+              AND "소재지" != '' 
+            ORDER BY TRIM("소재지") ASC
+        ''')
         region_list = [row[0].strip() for row in cur.fetchall() if row[0]]
 
         return JSONResponse(
@@ -206,7 +215,7 @@ def get_major_metadata():
                     "founding_options": founding_list,     
                     "school_type_options": school_type_list, 
                     "program_options": program_list,
-                    "region_options": region_list  # 🔥 프론트엔드로 지역 데이터 내려줌
+                    "region_options": region_list  
                 }
             },
             media_type="application/json; charset=utf-8"
