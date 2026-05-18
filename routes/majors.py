@@ -43,11 +43,17 @@ class ProgramType(str, Enum):
 
 
 # =========================================================================
-# 1. 학과 통합 검색 API (지역 필터 완벽 연동)
+# 1. 학과 통합 검색 API (현행 학과 및 운영 중인 대학만 필터링)
 # =========================================================================
 @router.get(
     "/locate-major",
     summary="학과 검색 (학과명/설립/구분/학제/지역 정교화)", 
+    description=(
+        "학과명, 설립구분, 학교구분, 학제, 소재지를 기반으로 학과를 검색합니다. "
+        "**[필터링 규칙]** 학교명에 '(폐교)'가 포함된 대학 및 학과상태가 폐지인 항목"
+        "(`폐지`, `변경[폐지]`, `통합[폐지]`, `분리[폐지]`, `폐지[기존]`)은 자동 제외되며, "
+        "현재 정상 운영 중인 현행 학과(`기존`, `신설`, `변경[기존]`, `통합[기존]`, `분리[기존]`)만 조회됩니다."
+    ),
     responses={
         200: {
             "content": {
@@ -94,8 +100,11 @@ def locate_major(
         conn = get_conn()
         cur = conn.cursor()
 
-        # 원본 데이터 기준 운영 중인 학과 상태만 필터링
-        where_clauses = ['"학과상태" = \'기존\'']
+        # 🎯 기본 베이스 필터: 폐교 제외 및 현행 유지 상태인 학과 상태만 지정
+        where_clauses = [
+            '"학과상태" IN (\'기존\', \'신설\', \'변경[기존]\', \'통합[기존]\', \'분리[기존]\')',
+            '"학교명" NOT LIKE \'%(폐교)%\''
+        ]
         params = []
 
         # 1. 학부·과(전공)명 조건 추가
@@ -118,8 +127,7 @@ def locate_major(
             where_clauses.append('"학제" = ?')
             params.append(program.value)
 
-        # 5. 🎯 정교화된 소재지(지역) 조건 추가
-        # 데이터 적재 환경에 따라 공백이 남아있을 수 있으므로 TRIM 처리하여 칼럼 바인딩
+        # 5. 소재지(지역) 조건 추가
         if region and region.strip():
             where_clauses.append('TRIM("소재지") = ?')
             params.append(region.strip())
@@ -171,12 +179,15 @@ def locate_major(
 
 
 # =========================================================================
-# 2. 학과 검색용 드롭다운 메타데이터 조회 API (소재지 중복제거 정렬 반영)
+# 2. 학과 검색용 드롭다운 메타데이터 조회 API (정제 데이터 반영)
 # =========================================================================
 @router.get(
     "/major-metadata",
     summary="학과 검색용 드롭다운 메타데이터 조회",
-    description="DB에 실제로 존재하는 '설립구분', '학교구분', '학제', '소재지(지역)' 목록을 제공합니다.",
+    description=(
+        "DB에 존재하는 '설립구분', '학교구분', '학제', '소재지(지역)' 목록을 제공합니다. "
+        "검색 API와 마찬가지로 폐교대학 및 미운영(폐지) 학과의 메타데이터는 제외된 깨끗한 목록을 반환합니다."
+    ),
 )
 def get_major_metadata():
     conn = None
@@ -184,26 +195,40 @@ def get_major_metadata():
         conn = get_conn()
         cur = conn.cursor()
 
+        # 공통으로 적용할 WHERE 절 정의 (폐교 제외, 현행 학과만)
+        base_where = '''
+            WHERE "학과상태" IN ('기존', '신설', '변경[기존]', '통합[기존]', '분리[기존]')
+              AND "학교명" NOT LIKE '%(폐교)%'
+        '''
+
         # 1. 설립구분 리스트 추출
-        cur.execute('SELECT DISTINCT "설립구분" FROM majors WHERE "학과상태" = \'기존\' AND "설립구분" IS NOT NULL AND "설립구분" != \'\' ORDER BY "설립구분" ASC')
+        cur.execute(f'''
+            SELECT DISTINCT "설립구분" FROM majors 
+            {base_where} AND "설립구분" IS NOT NULL AND "설립구분" != '' 
+            ORDER BY "설립구분" ASC
+        ''')
         founding_list = [row[0].strip() for row in cur.fetchall() if row[0]]
 
         # 2. 학교구분 리스트 추출
-        cur.execute('SELECT DISTINCT "학교구분" FROM majors WHERE "학과상태" = \'기존\' AND "학교구분" IS NOT NULL AND "학교구분" != \'\' ORDER BY "학교구분" ASC')
+        cur.execute(f'''
+            SELECT DISTINCT "학교구분" FROM majors 
+            {base_where} AND "학교구분" IS NOT NULL AND "학교구분" != '' 
+            ORDER BY "학교구분" ASC
+        ''')
         school_type_list = [row[0].strip() for row in cur.fetchall() if row[0]]
 
         # 3. 학제 리스트 추출
-        cur.execute('SELECT DISTINCT "학제" FROM majors WHERE "학과상태" = \'기존\' AND "학제" IS NOT NULL AND "학제" != \'\' ORDER BY "학제" ASC')
+        cur.execute(f'''
+            SELECT DISTINCT "학제" FROM majors 
+            {base_where} AND "학제" IS NOT NULL AND "학제" != '' 
+            ORDER BY "학제" ASC
+        ''')
         program_list = [row[0].strip() for row in cur.fetchall() if row[0]]
 
-        # 4. 🎯 소재지 리스트 정교화 추출
-        # 공백이나 특수 가공 문제 방지를 위해 데이터 클렌징 쿼리 적용
-        cur.execute('''
-            SELECT DISTINCT TRIM("소재지") 
-            FROM majors 
-            WHERE "학과상태" = '기존' 
-              AND "소재지" IS NOT NULL 
-              AND "소재지" != '' 
+        # 4. 소재지 리스트 정교화 추출
+        cur.execute(f'''
+            SELECT DISTINCT TRIM("소재지") FROM majors 
+            {base_where} AND "소재지" IS NOT NULL AND "소재지" != '' 
             ORDER BY TRIM("소재지") ASC
         ''')
         region_list = [row[0].strip() for row in cur.fetchall() if row[0]]
