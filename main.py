@@ -64,7 +64,7 @@ app.include_router(majors)
 # 🚨 [버그 원천 차단] 루트 주소 사이트맵 동적 라우터
 # =========================================================================
 
-# 1. 마스터 인덱스 지도 전용 라우터 (https://integer7813.cloud/sitemap.xml 대응)
+# 1. 마스터 인덱스 지도 전용 라우터 (https://api.integer7813.cloud/sitemap.xml 직접 대응용)
 # 💡 유저가 sitemap.xml을 치면 어떤 예외 상황에서도 무조건 진짜 마스터 인덱스 파일만 리턴합니다.
 @app.get("/sitemap.xml")
 def route_sitemap_index():
@@ -77,7 +77,7 @@ def route_sitemap_index():
     raise HTTPException(status_code=404, detail="Sitemap Index Not Found. Please wait for generation.")
 
 
-# 2. 서브 사이트맵 파일명 매칭 라우터 (/sitemap-static.xml, /sitemap-majors.xml 등)
+# 2. 서브 사이트맵 파일명 매칭 라우터 (https://api.integer7813.cloud/sitemap-static.xml 직접 대응용)
 @app.get("/sitemap-{filename}.xml")
 def route_sitemap_by_name(filename: str):
     target_path = f"static/sitemaps/sitemap-{filename}.xml"
@@ -90,8 +90,9 @@ def route_sitemap_by_name(filename: str):
 # =========================================================================
 
 
-# 정적 파일 서빙 백업 매핑 (기존 유지)
-app.mount("/api/sitemaps", StaticFiles(directory="static/sitemaps"), name="sitemaps")
+# 🔥 [수정 완료] 정적 파일 서빙 매핑 주소 변경
+# 프론트엔드가 요청하는 주소인 /static/sitemaps/... 구조와 실제 컨테이너 내부 폴더를 1:1로 매핑합니다.
+app.mount("/static/sitemaps", StaticFiles(directory="static/sitemaps"), name="sitemaps")
 
 
 @app.get("/")
