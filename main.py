@@ -48,25 +48,29 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 🚨 [추가된 기능] 모든 라우터 일괄 캐싱 미들웨어
-# 루트 주소나 사이트맵, 정적 파일을 제외한 모든 API 응답에 Cache-Control 헤더를 자동으로 추가합니다.
+# 🚨 [수정 완료] 모든 라우터 일괄 캐싱 미들웨어 (랜덤 라우터 제외 로직 추가)
 @app.middleware("http")
 async def add_cache_control_header(request: Request, call_next):
     response = await call_next(request)
     path = request.url.path
     
-    # 캐싱에서 제외할 경로 정의 (루트, 사이트맵 xml, 정적 파일 폴더)
-    bypass_paths = ["/", "/sitemap.xml"]
+    # 💡 캐싱에서 완전히 제외할 정확한 경로들을 정의합니다.
+    # (여기에 실제 random_router의 엔드포인트 주소를 적어주세요. 예: "/university/random")
+    bypass_paths = ["/", "/sitemap.xml", "/university/random"]
     
-    # 예외 경로가 아니고, sitemap 관련 요청도 아니며, 상태코드가 200 정상 응답일 때만 캐싱
+    # 안전장치: 경로에 'random'이라는 단어가 포함되어 있거나, bypass 목록에 있으면 캐싱 안 함
     if (
         path not in bypass_paths 
+        and "random" not in path.lower()  # 💡 URL에 'random'이 들어가면 무조건 패스
         and not path.startswith("/sitemap-") 
         and not path.startswith("/static/")
         and response.status_code == 200
     ):
         # 1시간(3600초) 동안 브라우저/클라이언트단 캐싱 적용
         response.headers["Cache-Control"] = "public, max-age=3600"
+    else:
+        # 💡 랜덤이나 예외 경로에는 캐싱을 명시적으로 금지하는 헤더를 붙여서 사파리/크롬의 오작동을 원천 차단합니다.
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
         
     return response
 
