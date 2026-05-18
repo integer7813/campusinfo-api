@@ -23,46 +23,46 @@ def clean_major_name(raw_name):
     return name
 
 def generate_sitemaps():
-    print("🚀 대용량 완전체 사이트맵 생성 시작 (파일 분리 무결성 버전)...")
-    
-    # 💡 혹시 모를 찌꺼기 혼선을 방지하기 위해 폴더를 깨끗하게 비우고 새로 만듭니다.
-    if os.path.exists(OUTPUT_DIR):
-        import shutil
-        shutil.rmtree(OUTPUT_DIR)
+    print("🚀 [완전체 통합] sitemap-static.xml 파일 하나에 모든 URL 빌드 시작...")
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     
+    # 단 한 장의 사이트맵에 다 쑤셔 넣을 거대한 주머니
+    all_urls = []
+
+    # =========================================================================
+    # [1] 기본 고정 정적 페이지용 URL 수집
+    # =========================================================================
+    base_routes = ['', '/about', '/contact', '/privacy', '/terms', '/future', '/univ/list']
+    for route in base_routes:
+        priority = '1.0' if route == '' else '0.8'
+        all_urls.append(
+            f"<url><loc>{BASE_URL}{route}</loc><changefreq>daily</changefreq><priority>{priority}</priority></url>"
+        )
+    print(f"✅ 1. 기본 정적 페이지 URL 수집 완료 ({len(base_routes)}개)")
+
+    # DB 연결
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
     # =========================================================================
-    # [1] 오직 고정 정적 페이지 전용 (sitemap-static.xml)
+    # [2] 전국 대학 상세 페이지용 URL 수집 (폐교 제외)
     # =========================================================================
-    base_routes = ['', '/about', '/contact', '/privacy', '/terms', '/future', '/univ/list']
-    static_urls = [
-        f"<url><loc>{BASE_URL}{route}</loc><changefreq>daily</changefreq><priority>{'1.0' if route == '' else '0.8'}</priority></url>"
-        for route in base_routes
-    ]
-    with open(f"{OUTPUT_DIR}/sitemap-static.xml", "w", encoding="utf-8") as f:
-        f.write(f'<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{"".join(static_urls)}</urlset>')
-    print("✅ sitemap-static.xml 생성 완료")
+    try:
+        cursor.execute("SELECT DISTINCT [학교명] FROM universities WHERE [학교명] NOT LIKE '%(폐교)%' AND [학교명] IS NOT NULL")
+        univs = sorted(list(set([row[0].strip() for row in cursor.fetchall() if row[0]])))
+        
+        for u in univs:
+            encoded_univ = urllib.parse.quote(u)
+            all_urls.append(
+                f"<url><loc>{BASE_URL}/univ/{encoded_univ}</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>"
+            )
+        print(f"✅ 2. 전국 대학 상세 페이지 URL 수집 완료 (총 {len(univs)}개 대학)")
+    except Exception as e:
+        print("❌ 대학 테이블([universities]) 조회 실패:", e)
 
     # =========================================================================
-    # [2] 오직 대학 상세 페이지 전용 (sitemap-univ.xml)
+    # [3] 🎯 전공명 키워드 리스트용 URL 수집 (괄호, 특수문자 원본 100% 보존)
     # =========================================================================
-    cursor.execute("SELECT DISTINCT [학교명] FROM universities WHERE [학교명] NOT LIKE '%(폐교)%' AND [학교명] IS NOT NULL")
-    univs = sorted(list(set([row[0].strip() for row in cursor.fetchall() if row[0]])))
-    univ_urls = [
-        f"<url><loc>{BASE_URL}/univ/{urllib.parse.quote(u)}</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>"
-        for u in univs
-    ]
-    with open(f"{OUTPUT_DIR}/sitemap-univ.xml", "w", encoding="utf-8") as f:
-        f.write(f'<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{"".join(univ_urls)}</urlset>')
-    print(f"✅ sitemap-univ.xml 생성 완료 (총 {len(univs)}개 대학)")
-
-    # =========================================================================
-    # [3] 🎯 오직 전공명 리스트 전용 (sitemap-majors.xml)
-    # =========================================================================
-    major_urls = []
     try:
         cursor.execute("""
             SELECT DISTINCT [학부·과(전공)명] 
@@ -83,34 +83,26 @@ def generate_sitemaps():
 
         for major in cleaned_majors:
             encoded_major = urllib.parse.quote(major)
-            major_urls.append(
+            all_urls.append(
                 f"<url><loc>{BASE_URL}/major/list/name/{encoded_major}</loc>"
                 f"<changefreq>weekly</changefreq><priority>0.6</priority></url>"
             )
-            
+        print(f"✅ 3. 전공명 키워드 리스트 URL 수집 완료 (총 {len(cleaned_majors)}개 전공)")
+        
     except Exception as e:
-        print("❌ 학과 테이블 조회 실패:", e)
-            
-    with open(f"{OUTPUT_DIR}/sitemap-majors.xml", "w", encoding="utf-8") as f:
-        f.write(f'<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{"".join(major_urls)}</urlset>')
-    print(f"✅ sitemap-majors.xml 생성 완료 (총 {len(major_urls)}개 전공)")
+        print("❌ 학과 테이블([majors]) 조회 실패:", e)
+        
+    conn.close()
 
     # =========================================================================
-    # [4] 검색 로봇 진입점 - 마스터 인덱스 사이트맵 (sitemap.xml)
+    # [4] 🚨 현재 서버가 실제로 바라보고 있는 `sitemap-static.xml` 파일로 출력 및 덮어쓰기
     # =========================================================================
-    # 💡 Nginx 라우팅 규칙에 맞춰 로봇이 파일들을 각각 찾아갈 수 있도록 절대 주소를 정교화합니다.
-    index_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
-    <sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-        <sitemap><loc>{BASE_URL}/sitemap-static.xml</loc></sitemap>
-        <sitemap><loc>{BASE_URL}/sitemap-univ.xml</loc></sitemap>
-        <sitemap><loc>{BASE_URL}/sitemap-majors.xml</loc></sitemap>
-    </sitemapindex>
-    """
-    with open(f"{OUTPUT_DIR}/sitemap.xml", "w", encoding="utf-8") as f:
-        f.write(index_xml)
-    
-    conn.close()
-    print("🎉 모든 독립형 사이트맵 파일이 물리적으로 완벽히 교체 및 생성되었습니다!")
+    with open(f"{OUTPUT_DIR}/sitemap-static.xml", "w", encoding="utf-8") as f:
+        f.write(f'<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{"".join(all_urls)}</urlset>')
+        
+    print("\n🎉 [빌드 완료] ===================================================")
+    print(f" 총 {len(all_urls)}개의 모든 주소가 현재 서버 실서빙 파일인 `sitemap-static.xml`에 오차 없이 덮어써졌습니다.")
+    print("==================================================================")
 
 if __name__ == "__main__":
     generate_sitemaps()
