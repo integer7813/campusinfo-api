@@ -3,7 +3,6 @@
 import sqlite3
 import urllib.parse
 import os
-import re
 
 DB_PATH = "universities.db"
 OUTPUT_DIR = "./static/sitemaps"
@@ -11,30 +10,33 @@ BASE_URL = "https://integer7813.cloud"
 
 def clean_major_name(raw_name):
     """
-    유저가 입력하는 '전공명'을 있는 그대로 반영하되,
-    혹시 맨 앞에 붙어있을지 모르는 숫자 코드 정도만 트리밍합니다.
-    예: '(25)경찰행정학전공' -> '경찰행정학전공' 혹은 괄호가 포함된 원본 유지
+    디비에서 주는 대로 안 만들어서 깨지는 문제를 원천 차단하기 위해
+    글자 수정 없이 100% 원본 그대로 리턴합니다.
     """
     if not raw_name:
         return None
     
-    # 만약 원본 데이터 그대로 (25)까지 주소창에 치는 스펙이라면 아래 re.sub를 주석 처리하세요.
-    # 여기서는 앞쪽 숫자/괄호 찌꺼기만 떼고 '금융・빅데이터학부(금융수학전공)' 같은 본체는 그대로 유지합니다.
-    name = re.sub(r'^[\(\[\{\d+\)\]\}]+', '', raw_name.strip())
-    name = name.strip()
+    name = raw_name.strip()
     
     if len(name) < 2:
         return None
     return name
 
 def generate_sitemaps():
-    print("🚀 대용량 완전체 사이트맵 생성 시작 (원본 전공명 보존 버전)...")
+    print("🚀 대용량 완전체 사이트맵 생성 시작 (파일 분리 무결성 버전)...")
+    
+    # 💡 혹시 모를 찌꺼기 혼선을 방지하기 위해 폴더를 깨끗하게 비우고 새로 만듭니다.
+    if os.path.exists(OUTPUT_DIR):
+        import shutil
+        shutil.rmtree(OUTPUT_DIR)
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    # [1] 기본 고정 정적 페이지용 사이트맵 생성
+    # =========================================================================
+    # [1] 오직 고정 정적 페이지 전용 (sitemap-static.xml)
+    # =========================================================================
     base_routes = ['', '/about', '/contact', '/privacy', '/terms', '/future', '/univ/list']
     static_urls = [
         f"<url><loc>{BASE_URL}{route}</loc><changefreq>daily</changefreq><priority>{'1.0' if route == '' else '0.8'}</priority></url>"
@@ -42,8 +44,11 @@ def generate_sitemaps():
     ]
     with open(f"{OUTPUT_DIR}/sitemap-static.xml", "w", encoding="utf-8") as f:
         f.write(f'<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{"".join(static_urls)}</urlset>')
+    print("✅ sitemap-static.xml 생성 완료")
 
-    # [2] 대학 상세 사이트맵 생성 (폐교 제외)
+    # =========================================================================
+    # [2] 오직 대학 상세 페이지 전용 (sitemap-univ.xml)
+    # =========================================================================
     cursor.execute("SELECT DISTINCT [학교명] FROM universities WHERE [학교명] NOT LIKE '%(폐교)%' AND [학교명] IS NOT NULL")
     univs = sorted(list(set([row[0].strip() for row in cursor.fetchall() if row[0]])))
     univ_urls = [
@@ -52,11 +57,13 @@ def generate_sitemaps():
     ]
     with open(f"{OUTPUT_DIR}/sitemap-univ.xml", "w", encoding="utf-8") as f:
         f.write(f'<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{"".join(univ_urls)}</urlset>')
+    print(f"✅ sitemap-univ.xml 생성 완료 (총 {len(univs)}개 대학)")
 
-    # [3] 🎯 전공명 리스트 사이트맵 생성 (원본 문자열 그대로 맵핑)
+    # =========================================================================
+    # [3] 🎯 오직 전공명 리스트 전용 (sitemap-majors.xml)
+    # =========================================================================
     major_urls = []
     try:
-        # 가드 조건(현행 상태 + 운영 대학)만 걸고, [학부·과(전공)명] 컬럼의 괄호나 특수문자를 절대 쳐내지 않습니다.
         cursor.execute("""
             SELECT DISTINCT [학부·과(전공)명] 
             FROM majors 
@@ -68,41 +75,42 @@ def generate_sitemaps():
         processed_majors = set()
         for row in cursor.fetchall():
             raw_val = row[0]
-            cleaned = clean_major_name(raw_val) # 필요시 세탁, 원본 그대로면 raw_val 사용
+            cleaned = clean_major_name(raw_val)
             if cleaned:
                 processed_majors.add(cleaned)
         
         cleaned_majors = sorted(list(processed_majors))
 
         for major in cleaned_majors:
-            # 💡 금융・빅데이터학부(금융수학전공) 등의 특수문자/괄호가 원본 그대로 퍼센트 인코딩됩니다.
             encoded_major = urllib.parse.quote(major)
             major_urls.append(
                 f"<url><loc>{BASE_URL}/major/list/name/{encoded_major}</loc>"
                 f"<changefreq>weekly</changefreq><priority>0.6</priority></url>"
             )
             
-        print(f"💡 사이트맵 빌드 완료: 총 {len(cleaned_majors)}개의 실제 전공명 URL 생성")
-        
     except Exception as e:
-        print("❌ 학과 테이블 조회 또는 매핑 실패:", e)
+        print("❌ 학과 테이블 조회 실패:", e)
             
     with open(f"{OUTPUT_DIR}/sitemap-majors.xml", "w", encoding="utf-8") as f:
         f.write(f'<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{"".join(major_urls)}</urlset>')
+    print(f"✅ sitemap-majors.xml 생성 완료 (총 {len(major_urls)}개 전공)")
 
-    # [4] 마스터 인덱스 사이트맵 생성
+    # =========================================================================
+    # [4] 검색 로봇 진입점 - 마스터 인덱스 사이트맵 (sitemap.xml)
+    # =========================================================================
+    # 💡 Nginx 라우팅 규칙에 맞춰 로봇이 파일들을 각각 찾아갈 수 있도록 절대 주소를 정교화합니다.
     index_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
     <sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-        <sitemap><loc>{BASE_URL}/api/sitemaps/sitemap-static.xml</loc></sitemap>
-        <sitemap><loc>{BASE_URL}/api/sitemaps/sitemap-univ.xml</loc></sitemap>
-        <sitemap><loc>{BASE_URL}/api/sitemaps/sitemap-majors.xml</loc></sitemap>
+        <sitemap><loc>{BASE_URL}/sitemap-static.xml</loc></sitemap>
+        <sitemap><loc>{BASE_URL}/sitemap-univ.xml</loc></sitemap>
+        <sitemap><loc>{BASE_URL}/sitemap-majors.xml</loc></sitemap>
     </sitemapindex>
     """
     with open(f"{OUTPUT_DIR}/sitemap.xml", "w", encoding="utf-8") as f:
         f.write(index_xml)
     
     conn.close()
-    print("🎉 주소창 라우터 스펙과 100% 일치하는 전공명 기반 사이트맵 생성 완료!")
+    print("🎉 모든 독립형 사이트맵 파일이 물리적으로 완벽히 교체 및 생성되었습니다!")
 
 if __name__ == "__main__":
     generate_sitemaps()
