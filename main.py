@@ -1,5 +1,5 @@
 import os  # 파일 경로 존재 여부 체크를 위해 필수
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse          # 사이트맵 XML 파일 직접 반환용
@@ -48,6 +48,28 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 🚨 [추가된 기능] 모든 라우터 일괄 캐싱 미들웨어
+# 루트 주소나 사이트맵, 정적 파일을 제외한 모든 API 응답에 Cache-Control 헤더를 자동으로 추가합니다.
+@app.middleware("http")
+async def add_cache_control_header(request: Request, call_next):
+    response = await call_next(request)
+    path = request.url.path
+    
+    # 캐싱에서 제외할 경로 정의 (루트, 사이트맵 xml, 정적 파일 폴더)
+    bypass_paths = ["/", "/sitemap.xml"]
+    
+    # 예외 경로가 아니고, sitemap 관련 요청도 아니며, 상태코드가 200 정상 응답일 때만 캐싱
+    if (
+        path not in bypass_paths 
+        and not path.startswith("/sitemap-") 
+        and not path.startswith("/static/")
+        and response.status_code == 200
+    ):
+        # 1시간(3600초) 동안 브라우저/클라이언트단 캐싱 적용
+        response.headers["Cache-Control"] = "public, max-age=3600"
+        
+    return response
+
 # 리미터 연결 및 핸들러 등록
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
@@ -65,14 +87,12 @@ app.include_router(majors)
 # =========================================================================
 
 # 1. 마스터 인덱스 지도 전용 라우터 (https://api.integer7813.cloud/sitemap.xml 직접 대응용)
-# 💡 유저가 sitemap.xml을 치면 어떤 예외 상황에서도 무조건 진짜 마스터 인덱스 파일만 리턴합니다.
 @app.get("/sitemap.xml")
 def route_sitemap_index():
     target_path = "static/sitemaps/sitemap.xml"
     if os.path.exists(target_path):
         return FileResponse(target_path, media_type="application/xml")
     
-    # 만약 빌드가 덜 끝났거나 파일이 물리적으로 없으면 404 에러를 내서 로봇이 재수집하게 유도합니다.
     from fastapi import HTTPException
     raise HTTPException(status_code=404, detail="Sitemap Index Not Found. Please wait for generation.")
 
@@ -90,8 +110,7 @@ def route_sitemap_by_name(filename: str):
 # =========================================================================
 
 
-# 🔥 [수정 완료] 정적 파일 서빙 매핑 주소 변경
-# 프론트엔드가 요청하는 주소인 /static/sitemaps/... 구조와 실제 컨테이너 내부 폴더를 1:1로 매핑합니다.
+# 🔥 정적 파일 서빙 매핑 주소 변경
 app.mount("/static/sitemaps", StaticFiles(directory="static/sitemaps"), name="sitemaps")
 
 
