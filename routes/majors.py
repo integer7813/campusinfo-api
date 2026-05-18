@@ -75,7 +75,7 @@ class ProgramType(str, Enum):
 @limiter.limit("20/minute")
 def locate_major(
     request: Request,
-    q: Optional[str] = Query(None, min_length=2, description="검색할 학과명 (예: 컴퓨터)"),
+    q: Optional[str] = Query(None, description="검색할 학과명 (예: 컴퓨터)"),  # 💡 [버그 수정] min_length 제약을 제거하여 한글/특수문자 파싱 유효성 차단 현상을 방지합니다.
     founding: Optional[FoundingType] = Query(None, description="설립구분 (국립/사립 등)"),
     school_type: Optional[SchoolType] = Query(None, description="학교구분 (대학/전문대학 등)"),
     program: Optional[ProgramType] = Query(None, description="학제 (일반대학원/특수대학원 등)"),
@@ -85,8 +85,10 @@ def locate_major(
 ):
     start_time = time.perf_counter()
     
-    # 가드 조건 체크 대상 확장
-    if not any([q, founding, school_type, program, region]):
+    # 💡 [버그 수정] 프론트에서 school_type 하드코딩이 빠졌을 때 q 단독 검색어만으로도 가드를 무사 통과하도록 판별식을 개선합니다.
+    has_q = q is not None and len(q.strip()) > 0
+    
+    if not any([has_q, founding, school_type, program, region]):
         return JSONResponse(
             content={
                 "status": "success",
